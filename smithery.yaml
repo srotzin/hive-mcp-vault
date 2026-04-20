@@ -1,0 +1,157 @@
+# Smithery Registry — HiveVault MCP Server
+
+startCommand:
+  type: http
+  configSchema:
+    type: object
+    properties:
+      owner_address:
+        type: string
+        description: "Your Base L2 wallet address (0x...)"
+      did:
+        type: string
+        description: "Your agent DID (optional — returned after vault setup)"
+    required: []
+  url: https://hivevault.onrender.com/mcp
+
+name: hivevault-mcp
+displayName: HiveVault — A2A ZK Wallet Recovery
+version: "1.0.0"
+description: >
+  The world's first non-custodial wallet with autonomous AI agent recovery.
+  No seed phrase. No hardware wallet. No human guardian.
+  A 3-of-5 quorum of staked, slashable AI agents executes recovery via A2A protocol.
+  ZK biometric commitment. TSS-MPC (2,2) key splitting. 72-hour veto window.
+  USDC balance on Base L2 via Coinbase CDP. Fully persistent in PostgreSQL.
+  Part of the Hive Civilization network (thehiveryiq.com).
+
+author:
+  name: Steve Rotzin
+  email: steve@thehiveryiq.com
+  url: https://www.thehiveryiq.com
+
+license: MIT
+homepage: https://hivevault.onrender.com
+repository:
+  type: git
+  url: https://github.com/srotzin/hivevault
+
+transport: streamable-http
+endpoint: https://hivevault.onrender.com/mcp
+protocol: "2024-11-05"
+
+categories:
+  - identity
+  - wallet
+  - agent-to-agent
+  - zero-knowledge
+  - web3
+  - security
+
+tags:
+  - mcp
+  - hive
+  - wallet
+  - zk-proof
+  - a2a
+  - recovery
+  - tss-mpc
+  - guardian
+  - usdc
+  - base-l2
+  - did
+  - non-custodial
+  - defai
+  - ai-agents
+
+tools:
+  - name: vault_create
+    description: >
+      Create a new HiveVault — the world's first AI-agent-recovered wallet.
+      Registers a sovereign DID on HiveGate, splits key via TSS-MPC (2,2),
+      creates ZK biometric commitment, assigns 5 staked guardian agents,
+      and creates a guardian covenant via HiveLaw. Returns vault DID and
+      real USDC balance on Base L2.
+    inputs:
+      - name: owner_address
+        type: string
+        required: true
+        description: "Your Base L2 wallet address (0x...)"
+      - name: biometric_hash
+        type: string
+        required: true
+        description: "SHA-256 hash of biometric data (fingerprint, face ID). Never sent raw."
+      - name: device_key
+        type: string
+        required: true
+        description: "Device-specific entropy string (generated on device, never leaves device in production)"
+      - name: label
+        type: string
+        required: false
+        description: "Human-readable label for this vault (e.g. 'Primary Agent Wallet')"
+
+  - name: vault_recover
+    description: >
+      Initiate A2A wallet recovery. Broadcasts a RecoveryIntent to all 5 guardian
+      agents. Each independently verifies the ZK proof and votes. Once 3-of-5
+      approve, the wallet is recovered to the new address. HiveLaw finalizes
+      and guardian yield is paid. 72-hour veto window for security.
+    inputs:
+      - name: vault_did
+        type: string
+        required: true
+        description: "Vault DID from vault_create"
+      - name: biometric_hash
+        type: string
+        required: true
+        description: "Same biometric hash used at vault creation"
+      - name: device_key
+        type: string
+        required: true
+        description: "Device key from vault creation"
+      - name: new_address
+        type: string
+        required: true
+        description: "New Base L2 wallet address to recover to"
+      - name: reason
+        type: string
+        required: false
+        description: "Reason for recovery (e.g. 'device lost', 'compromised key')"
+
+  - name: vault_status
+    description: >
+      Get vault status including guardian set, live USDC balance from Base L2,
+      ZK commitment prefix, and covenant ID. Balance is fetched in real-time
+      via eth_call to the USDC ERC-20 contract.
+    inputs:
+      - name: vault_did
+        type: string
+        required: true
+
+  - name: vault_list_guardians
+    description: >
+      List available guardian agents with live HiveTrust scores and stake amounts.
+      Shows which agents are eligible (trust score >= 0.78, $5,000 USDC staked).
+      No auth required.
+    inputs: []
+
+  - name: vault_recovery_status
+    description: >
+      Poll the status of an in-progress recovery. Shows votes cast, votes needed,
+      guardian votes breakdown, and current status (pending/approved/vetoed).
+    inputs:
+      - name: recovery_id
+        type: string
+        required: true
+
+runtime:
+  type: python
+  version: ">=3.11"
+  command: python main.py
+  env:
+    - name: PORT
+      default: "8080"
+      required: false
+    - name: DATABASE_URL
+      description: "PostgreSQL connection string"
+      required: false
