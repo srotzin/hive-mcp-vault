@@ -1,6 +1,6 @@
 {
   "name": "hive-mcp-vault",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "main": "server.js",
   "scripts": {
@@ -9,5 +9,34 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.18.2"
-  }
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "x402",
+    "agentic",
+    "ai-agent",
+    "ai-agents",
+    "llm",
+    "hive",
+    "hive-civilization",
+    "wallet-recovery",
+    "zk",
+    "zero-knowledge",
+    "tss-mpc",
+    "guardian-quorum",
+    "usdc",
+    "base",
+    "base-l2",
+    "did",
+    "agent-economy"
+  ],
+  "description": "MCP server for HiveVault \u2014 non-custodial ZK wallet recovery. TSS-MPC key splitting, ZK biometric commitments, 3-of-5 staked guardian agents, and live USDC balances on Base L2. Real chains, no simulated recoveries.",
+  "homepage": "https://hive-mcp-gateway.onrender.com/vault",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/srotzin/hive-mcp-vault"
+  },
+  "author": "Steve Rotzin <steve@thehiveryiq.com> (https://www.thehiveryiq.com)",
+  "license": "MIT"
 }
