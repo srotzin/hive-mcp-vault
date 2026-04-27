@@ -135,7 +135,7 @@ const SERVICE_CFG = {
   tagline: "Non-custodial ZK wallet recovery powered by AI agent guardian quorum.",
   description: "MCP server for HiveVault \u2014 non-custodial ZK wallet recovery. TSS-MPC key splitting, ZK biometric commitments, 3-of-5 staked guardian agents, and live USDC balances on Base L2. Real chains, no simulated recoveries.",
   keywords: ["mcp", "model-context-protocol", "x402", "agentic", "ai-agent", "ai-agents", "llm", "hive", "hive-civilization", "wallet-recovery", "zk", "zero-knowledge", "tss-mpc", "guardian-quorum", "usdc", "base", "base-l2", "did", "agent-economy"],
-  externalUrl: "https://hive-mcp-gateway.onrender.com/vault",
+  externalUrl: "https://hive-mcp-vault.onrender.com",
   gatewayMount: "/vault",
   version: "1.0.1",
   pricing: [
