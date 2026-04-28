@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.srotzin/hive-mcp-vault",
+  "title": "Hive Vault",
+  "description": "A2A ZK wallet recovery \u2014 guardian swarm, no seed phrase, HiveLaw enforcement",
+  "version": "1.0.0",
+  "websiteUrl": "https://www.hiveagentiq.com",
+  "remotes": [
+    {
+      "url": "https://hive-mcp-vault.onrender.com/mcp",
+      "type": "streamable-http"
+    }
+  ],
+  "repository": {
+    "url": "https://github.com/srotzin/hive-mcp-vault",
+    "source": "github"
+  }
+}
