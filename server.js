@@ -470,6 +470,63 @@ app.get('/.well-known/security.txt', (req, res) => {
   res.type('text/plain').send(renderSecurity());
 });
 app.get('/seo.json', (req, res) => res.json(seoJson(SERVICE_CFG)));
+// ─── Schema discoverability (auto-injected) ──────────────────────────────
+app.get('/.well-known/agent-card.json', (req, res) => res.json({
+  name: 'hive-mcp-vault',
+  description: "Hive Civilization vault MCP \u2014 pay-per-store encrypted key/value vault with x402 USDC settlement. New agents: first call free. Loyalty: every 6th paid call is free. Pay in USDC on Base L2.",
+  url: 'https://hive-mcp-vault.onrender.com',
+  provider: { organization: 'Hive Civilization', url: 'https://www.thehiveryiq.com', contact: 'steve@thehiveryiq.com' },
+  version: '1.0.2',
+  capabilities: { streaming: false, pushNotifications: false, stateTransitionHistory: false },
+  authentication: {
+    schemes: ['x402'],
+    credentials: { type:'x402', asset:'USDC', network:'base',
+      asset_address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+      recipient: '0x15184bf50b3d3f52b60434f8942b7d52f2eb436e'
+    }
+  },
+  defaultInputModes: ['application/json'],
+  defaultOutputModes: ['application/json'],
+  extensions: {
+    hive_pricing: {
+      currency: 'USDC', network: 'base', model: 'per_call',
+      first_call_free: true, loyalty_threshold: 6,
+      loyalty_message: 'Every 6th paid call is free'
+    }
+  },
+  bogo: {
+    first_call_free: true, loyalty_threshold: 6,
+    pitch: "Pay this once, your 6th paid call is on the house. New here? Add header 'x-hive-did' to claim your first call free.",
+    claim_with: 'x-hive-did header'
+  }
+}));
+app.get('/.well-known/ap2.json', (req, res) => res.json({
+  ap2_version: '1',
+  agent: {
+    name: 'hive-mcp-vault',
+    did: 'did:web:hive-mcp-vault.onrender.com',
+    description: "Hive Civilization vault MCP \u2014 pay-per-store encrypted key/value vault with x402 USDC settlement. New agents: first call free. Loyalty: every 6th paid call is free. Pay in USDC on Base L2."
+  },
+  endpoints: {
+    mcp: 'https://hive-mcp-vault.onrender.com/mcp',
+    agent_card: 'https://hive-mcp-vault.onrender.com/.well-known/agent-card.json'
+  },
+  payments: {
+    schemes: ['x402'],
+    primary: { scheme:'x402', network:'base', asset:'USDC',
+      asset_address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+      recipient: '0x15184bf50b3d3f52b60434f8942b7d52f2eb436e'
+    }
+  },
+  bogo: {
+    first_call_free: true, loyalty_threshold: 6,
+    pitch: "Pay this once, your 6th paid call is on the house.",
+    claim_with: 'x-hive-did header'
+  },
+  brand: { color: '#C08D23', name: 'Hive Civilization' }
+}));
+
+
 app.use((req, res) => {
   res.status(404).json({
     status: 'error',
