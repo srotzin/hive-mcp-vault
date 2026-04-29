@@ -1,70 +1,37 @@
-<!-- HIVE_BANNER_V1 -->
-<p align="center">
-  <a href="https://hive-mcp-gateway.onrender.com/vault/health">
-    <img src="https://hive-mcp-gateway.onrender.com/vault/og.svg" alt="HiveVault · ZK Wallet Recovery MCP" width="100%"/>
-  </a>
-</p>
+# hive-mcp-vault — SUSPENDED
 
-<h1 align="center">hive-mcp-vault</h1>
+> **This service has been suspended as of 2026-04-29.**
 
-<p align="center"><strong>Non-custodial ZK wallet recovery powered by AI agent guardian quorum.</strong></p>
+hive-mcp-vault (srv-d7nqftosfn5c73e9089g) operated TSS-MPC key splitting and ZK biometric commitments.
+After partner doctrine review, key custody sits in OKX, Trust Wallet, and MetaMask territory.
+Hive does not compete with wallet incumbents.
 
-<p align="center">
-  <a href="https://smithery.ai/server/hivecivilization"><img alt="Smithery" src="https://img.shields.io/badge/Smithery-hivecivilization-C08D23?style=flat-square"/></a>
-  <a href="https://glama.ai/mcp/servers"><img alt="Glama" src="https://img.shields.io/badge/Glama-pending-C08D23?style=flat-square"/></a>
-  <a href="https://hive-mcp-gateway.onrender.com/vault/health"><img alt="Live" src="https://img.shields.io/badge/gateway-live-C08D23?style=flat-square"/></a>
-  <a href="https://github.com/srotzin/hive-mcp-vault/releases"><img alt="Release" src="https://img.shields.io/github/v/release/srotzin/hive-mcp-vault?style=flat-square&color=C08D23"/></a>
-  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-C08D23?style=flat-square"/></a>
-</p>
+## Partner-shaped alternatives
 
-<p align="center">
-  <code>https://hive-mcp-gateway.onrender.com/vault/mcp</code>
-</p>
+**For guardian trust attestations:**
+→ [`hive-trust-bond`](https://github.com/srotzin/hive-trust-bond) — staked guardian agents attest
+trust scores and post bonds on behalf of principals. Wallets keep custody; Hive attests guardian
+credibility. Doctrine-clean.
+
+**For identity passthrough and agent KYC:**
+→ [`hive-mcp-agent-kyc`](https://github.com/srotzin/hive-mcp-agent-kyc) — $50 KYC + $20/mo
+subscription. DID-anchored identity passthrough for agents operating across settlement rails.
+No key custody. No biometric commitment. Identity, not wallet.
+
+## What Hive does instead
+
+Hive provides the trust layer that sits on top of custody-layer wallets:
+- Trust scores for agent DIDs (HiveTrust)
+- AML attestations (hive-mcp-aml-screen)
+- Spectral-signed receipts on every settlement action
+- Guardian staking and bond posting (hive-trust-bond)
+
+The wallet keeps the keys. Hive keeps the trust graph.
+
+## Brand
+
+Hive Civilization · brand gold `#C08D23` (never `#f5c518`) · Steve Rotzin
 
 ---
 
-# HiveVault
-
-**Non-custodial ZK wallet recovery powered by AI agent guardian quorum.**
-
-MCP server for HiveVault — non-custodial ZK wallet recovery. TSS-MPC key splitting, ZK biometric commitments, 3-of-5 staked guardian agents, and live USDC balances on Base L2. Real chains, no simulated recoveries.
-
-## What this is
-
-`hive-mcp-vault` is a Model Context Protocol (MCP) server that exposes the HiveVault platform on the Hive Civilization to any MCP-compatible client (Claude Desktop, Cursor, Manus, etc.). The server proxies to the live production gateway at `https://hive-mcp-gateway.onrender.com`.
-
-- **Protocol:** MCP 2024-11-05 over Streamable-HTTP / JSON-RPC 2.0
-- **x402 micropayments:** every paid call produces a real on-chain settlement
-- **Rails:** USDC on Base L2 — real rails, no mocks
-- **Author:** Steve Rotzin · Hive Civilization · brand gold `#C08D23`
-
-## Endpoints
-
-| Path | Purpose |
-|------|---------|
-| `POST /mcp` | JSON-RPC 2.0 / MCP 2024-11-05 |
-| `GET  /` | HTML landing with comprehensive meta tags + JSON-LD |
-| `GET  /health` | Health + telemetry |
-| `GET  /.well-known/mcp.json` | MCP discovery descriptor |
-| `GET  /.well-known/security.txt` | RFC 9116 security contact |
-| `GET  /robots.txt` | Allow-all crawl policy |
-| `GET  /sitemap.xml` | Crawler sitemap |
-| `GET  /og.svg` | 1200×630 Hive-gold OG image |
-| `GET  /seo.json` | JSON-LD structured data (SoftwareApplication) |
-
-## License
-
-MIT. © Steve Rotzin / Hive Civilization. Brand gold `#C08D23` (Pantone 1245 C). Never `#f5c518`.
-
-
-## Agent-native (v1.0.2)
-
-This shim ships the Hive Civilization agent-native bundle so any A2A or MCP-aware agent can discover, pay, and earn:
-
-- **A2A AgentCard** — \`GET /.well-known/agent.json\` (also at \`/agent.json\`).
-- **Open Agent Card (OAC) JSON-LD** — embedded inline at \`/\` and \`/agent.html\`, with \`@type SoftwareApplication\` + \`@type AgentCard\` under \`@context\` \`https://schema.org\` + \`https://a2a-protocol.org/v1\`.
-- **Earn rails** — every shim exposes \`hive_earn_register\`, \`hive_earn_me\`, \`hive_earn_leaderboard\` against \`https://hivemorph.onrender.com/v1/earn/*\`.
-  Resilient to upstream cold-start: returns a structured "earn rails not yet live" body if upstream isn't yet deployed.
-- **x402 propagation** — paid responses pass through the upstream 402 body untouched so the consuming agent can auto-pay.
-- **Pricing annotations** — every paid tool descriptor carries a non-standard \`pricing\` block (amount / currency / chain / recipient) ahead of MCP-next.
-- Brand: Hive Civilization gold \`#C08D23\`. Settlement: real Base USDC, recipient \`0x15184bf50b3d3f52b60434f8942b7d52f2eb436e\`. No mock, no testnet.
+*Committed: `chore(deprecate): vault suspended per partner doctrine — see hive-trust-bond + hive-mcp-agent-kyc for partner-shaped alternatives`*
