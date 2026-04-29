@@ -35,3 +35,15 @@ Hive Civilization · brand gold `#C08D23` (never `#f5c518`) · Steve Rotzin
 ---
 
 *Committed: `chore(deprecate): vault suspended per partner doctrine — see hive-trust-bond + hive-mcp-agent-kyc for partner-shaped alternatives`*
+
+## Hive Civilization Directory
+
+Part of the Hive Civilization — agent-native financial infrastructure.
+
+- Endpoint Directory: https://thehiveryiq.com
+- Live Leaderboard: https://hive-a2amev.onrender.com/leaderboard
+- Revenue Dashboard: https://hivemine-dashboard.onrender.com
+- Other MCP Servers: https://github.com/srotzin?tab=repositories&q=hive-mcp
+
+Brand: #C08D23
+<!-- /hive-footer -->
