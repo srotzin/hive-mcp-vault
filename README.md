@@ -1,5 +1,7 @@
 # hive-mcp-vault — SUSPENDED
 
+[![srotzin/hive-mcp-vault MCP server](https://glama.ai/mcp/servers/srotzin/hive-mcp-vault/badges/score.svg)](https://glama.ai/mcp/servers/srotzin/hive-mcp-vault)
+
 > **This service has been suspended as of 2026-04-29.**
 
 hive-mcp-vault (srv-d7nqftosfn5c73e9089g) operated TSS-MPC key splitting and ZK biometric commitments.
