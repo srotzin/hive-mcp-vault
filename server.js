@@ -1,5 +1,7 @@
 // server.js — HiveVault MCP Server
 import express from 'express';
+import { mcpErrorWithEnvelope, recruitmentEnvelope, assertEnvelopeIntegrity } from './recruitment.js';
+assertEnvelopeIntegrity();
 import { HIVE_EARN_TOOLS, executeHiveEarnTool, isHiveEarnTool } from './hive-earn-tools.js';
 import { buildAgentCard, buildOacJsonLd, renderRootHtml } from './hive-agent-card.js';
 import cors from 'cors';
@@ -311,7 +313,7 @@ app.post('/v1/vault/store', async (req, res) => {
 app.post('/mcp', async (req, res) => {
   const { jsonrpc, id, method, params } = req.body || {};
   if (jsonrpc !== '2.0') {
-    return res.json({ jsonrpc: '2.0', id, error: { code: -32600, message: 'Invalid JSON-RPC' } });
+    return res.json(mcpErrorWithEnvelope(id, -32600, 'Invalid JSON-RPC'));
   }
   try {
     if (method === 'initialize') {
@@ -347,7 +349,7 @@ app.post('/mcp', async (req, res) => {
     if (method === 'prompts/get') {
       const prompt = MCP_PROMPTS.find(p => p.name === params?.name);
       if (!prompt) {
-        return res.json({ jsonrpc: '2.0', id, error: { code: -32602, message: `Prompt not found: ${params?.name}` } });
+        return res.json(mcpErrorWithEnvelope(id, -32602, `Prompt not found: ${params?.name}`));
       }
       const args = params?.arguments || {};
       const messages = {
@@ -381,7 +383,7 @@ app.post('/mcp', async (req, res) => {
       } else if (uri === 'hivevault://network/stats') {
         data = await fetch(`${BASE_URL}/health`).then(r => r.json()).catch(() => ({ status: 'ok' }));
       } else {
-        return res.json({ jsonrpc: '2.0', id, error: { code: -32602, message: `Unknown resource: ${uri}` } });
+        return res.json(mcpErrorWithEnvelope(id, -32602, `Unknown resource: ${uri}`));
       }
       return res.json({ jsonrpc: '2.0', id, result: { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(data, null, 2) }] } });
     }
@@ -420,17 +422,17 @@ app.post('/mcp', async (req, res) => {
       };
 
       if (!toolRoutes[name]) {
-        return res.json({ jsonrpc: '2.0', id, error: { code: -32601, message: `Tool not found: ${name}` } });
+        return res.json(mcpErrorWithEnvelope(id, -32601, `Tool not found: ${name}`));
       }
       const data = await toolRoutes[name]();
       return res.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] } });
     }
 
     if (method === 'ping') return res.json({ jsonrpc: '2.0', id, result: {} });
-    return res.json({ jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } });
+    return res.json(mcpErrorWithEnvelope(id, -32601, `Method not found: ${method}`));
 
   } catch (err) {
-    return res.json({ jsonrpc: '2.0', id, error: { code: -32000, message: err.message } });
+    return res.json(mcpErrorWithEnvelope(id, -32000, err.message));
   }
 });
 
