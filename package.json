@@ -10,7 +10,8 @@
     "better-sqlite3": "^11.3.0",
     "cors": "^2.8.5",
     "ethers": "^6.13.2",
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "@noble/ed25519": "^2.1.0"
   },
   "keywords": [
     "mcp",
@@ -39,7 +40,7 @@
     "attribution",
     "earn"
   ],
-  "description": "MCP server for HiveVault — non-custodial ZK wallet recovery. TSS-MPC key splitting, ZK biometric commitments, 3-of-5 staked guardian agents, and live USDC balances on Base L2. Real chains, no simulated recoveries.",
+  "description": "MCP server for HiveVault \u2014 non-custodial ZK wallet recovery. TSS-MPC key splitting, ZK biometric commitments, 3-of-5 staked guardian agents, and live USDC balances on Base L2. Real chains, no simulated recoveries.",
   "homepage": "https://hive-mcp-gateway.onrender.com/vault",
   "repository": {
     "type": "git",
