@@ -557,14 +557,7 @@ app.get('/.well-known/ap2.json', (req, res) => res.json({
 }));
 
 
-app.use((req, res) => {
-  res.status(404).json({
-    status: 'error',
-    error: 'NOT_FOUND',
-    detail: `Route ${req.method} ${req.path} not found`,
-    available: ['GET /health', 'POST /mcp', 'GET /.well-known/mcp.json'],
-  });
-});
+// [removed 404 catch-all — replaced by slippery-sticky 200 catch-all below]
 
 // HIVE_AGENT_ROUTES_v1 — A2A AgentCard + OAC JSON-LD
 app.get('/.well-known/agent.json', (req, res) => {
@@ -578,6 +571,154 @@ app.get('/.well-known/oac.json', (req, res) => {
 });
 app.get('/agent.html', (req, res) => {
   res.type('text/html; charset=utf-8').send(renderRootHtml(HIVE_AGENT_CFG));
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SLIPPERY-STICKY DOORS — doctrine: never closed, always navigable
+// Paths: /llms.txt /robots.txt /sitemap.xml /.well-known/agent.json
+//        /favicon.ico / (root JSON)  +  catch-all breadcrumb (200 not 404)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const _DOORS_HOST = process.env.RENDER_EXTERNAL_URL || 'https://hive-mcp-vault.onrender.com';
+const _DOORS_ONBOARD = 'https://thehiveryiq.com/onboard.html';
+const _TREASURY = '0x15184Bf50B3d3F52b60434f8942b7D52F2eB436E';
+
+// ── /llms.txt ─────────────────────────────────────────────────────────────────
+app.get('/llms.txt', (req, res) => {
+  res.type('text/plain; charset=utf-8').send(`# Hive MCP Vault
+> MCP server for USDC yield vaults — deposit, withdraw, check balances, and collect cashback rewards via MCP tool calls.
+
+## What this is
+Hive MCP Vault is part of the Hive Civilization federation — a network of agent-facing
+microservices built for autonomous AI agents. Every public surface is navigable
+without a DID. Paid surfaces return a 402 with \`amount_min_usd\` — the floor price.
+Submit any value >= that floor. No ceiling enforced server-side.
+
+## Auth model
+- Free: GET /health, /llms.txt, /robots.txt, /sitemap.xml, /.well-known/*
+- Paid (x402 USDC on Base): vault deposit/withdraw/rebalance tool calls
+- BOGO: first call free (X-Hive-DID header), 6th paid call on the house
+- Settlement: USDC on Base to treasury address
+- Hive does NOT custody funds — attestation and routing only
+
+## Key endpoints
+- GET  /health                          — liveness check (free)
+- POST /mcp                             — MCP JSON-RPC (vault tools)
+- GET  /.well-known/mcp.json            — MCP discovery manifest (free)
+- GET  /.well-known/agent-card.json     — A2A agent card (free)
+MCP tools:
+  vault_deposit    — deposit USDC to yield vault (x402)
+  vault_withdraw   — withdraw USDC from vault (x402)
+  vault_balance    — check vault balance (free)
+  vault_rebalance  — rebalance across Aave/Compound/Morpho (x402)
+  cashback_claim   — sweep pending USDC cashback rewards (x402)
+
+## Sister services
+- HiveBank  (vaults + payments):  https://hivebank.onrender.com/llms.txt
+- HiveGate  (auth + onboarding):  https://hivegate.onrender.com/llms.txt
+- HiveSwap MCP:                   https://hive-mcp-swap.onrender.com/llms.txt
+- HiveAttest MCP:                 https://hive-mcp-attest.onrender.com/llms.txt
+- HiveMining MCP:                 https://hive-mcp-mining.onrender.com/llms.txt
+
+## Hive Civilization context
+Treasury: 0x15184Bf50B3d3F52b60434f8942b7D52F2eB436E (Base USDC/USDT)
+Solana: canonical Solana treasury address (see /.well-known/hive-payments.json)
+x402 barter floor: 402 envelope returns \`amount_min_usd\` — submit >= that value
+BOGO: first DID free, 6th paid call on the house (\`x-hive-did\` header to claim)
+Contact / onboard: https://thehiveryiq.com/onboard.html
+Patent: USPTO Provisional 64/055,601
+
+## License + brand
+License: MIT
+Brand color: gold #FFB800
+Last updated: 2026-05-02
+`);
+});
+
+// ── /robots.txt ───────────────────────────────────────────────────────────────
+app.get('/robots.txt', (req, res) => {
+  const host = req.hostname ? `https://${req.hostname}` : _DOORS_HOST;
+  res.type('text/plain; charset=utf-8').send(
+    `User-agent: *\nAllow: /\nSitemap: ${host}/sitemap.xml\n\n` +
+    `# Hive Civilization — slippery-sticky: every door is open\n` +
+    `# Autonomous agents welcome. See /llms.txt for full API guide.\n` +
+    `# Onboard: https://thehiveryiq.com/onboard.html\n`
+  );
+});
+
+// ── /sitemap.xml ──────────────────────────────────────────────────────────────
+app.get('/sitemap.xml', (req, res) => {
+  const host = req.hostname ? `https://${req.hostname}` : _DOORS_HOST;
+  const today = new Date().toISOString().slice(0,10);
+  res.type('application/xml; charset=utf-8').send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>${host}/</loc><lastmod>${today}</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>${host}/health</loc><lastmod>${today}</lastmod><changefreq>always</changefreq><priority>0.9</priority></url>
+  <url><loc>${host}/openapi.json</loc><lastmod>${today}</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>${host}/llms.txt</loc><lastmod>${today}</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>${host}/.well-known/agent.json</loc><lastmod>${today}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>${host}/.well-known/mcp.json</loc><lastmod>${today}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>
+</urlset>`);
+});
+
+// ── /.well-known/agent.json (A2A discovery — only if not already defined) ────
+if (!app._router || !app._router.stack.some(l => l.route && l.route.path === '/.well-known/agent.json')) {
+  app.get('/.well-known/agent.json', (req, res) => {
+    const host = req.hostname ? `https://${req.hostname}` : _DOORS_HOST;
+    res.json({
+      name: 'hive-mcp-vault',
+      description: 'MCP server for USDC yield vaults — deposit, withdraw, check balances, and collect cashback rewards via MCP tool calls.',
+      url: host,
+      contact: _DOORS_ONBOARD,
+      did: 'did:hive:hive-mcp-vault',
+      capabilities: ['mcp', 'x402-payments', 'usdc', 'agent-to-agent'],
+      paywall: { protocol: 'x402', treasury: _TREASURY, hint: 'See /llms.txt for barter floor details' },
+      onboard: _DOORS_ONBOARD,
+      llms_txt: `${host}/llms.txt`,
+      openapi: `${host}/openapi.json`,
+      health: `${host}/health`,
+      brand: { color: '#FFB800', name: 'Hive Civilization' },
+    });
+  });
+}
+
+// ── /favicon.ico — 1x1 Hive gold pixel ───────────────────────────────────────
+app.get('/favicon.ico', (req, res) => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+  res.status(200).set({ 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' }).end(png);
+});
+
+// ── / root — friendly JSON for agents that hit the base URL ──────────────────
+// Only register if no existing root handler
+if (!app._router || !app._router.stack.some(l => l.route && l.route.path === '/' && l.route.methods.get)) {
+  app.get('/', (req, res) => {
+    const host = req.hostname ? `https://${req.hostname}` : _DOORS_HOST;
+    res.json({
+      name: 'Hive MCP Vault',
+      what: 'MCP server for USDC yield vaults — deposit, withdraw, check balances, and collect cashback rewards via MCP tool calls.',
+      for_agents: 'see /llms.txt and /openapi.json',
+      onboard: _DOORS_ONBOARD,
+      paywall: 'x402 — see /llms.txt',
+      health: `${host}/health`,
+      openapi: `${host}/openapi.json`,
+      llms_txt: `${host}/llms.txt`,
+      mcp: `${host}/mcp`,
+    });
+  });
+}
+
+// ── Catch-all — every wrong door is a lead, never a dead end ─────────────────
+app.use((req, res, _next) => {
+  const host = req.hostname ? `https://${req.hostname}` : _DOORS_HOST;
+  res.status(200).json({
+    hint: 'unknown path — but we kept the door open',
+    you_asked_for: req.path,
+    try: ['/llms.txt', '/openapi.json', '/health', '/', '/.well-known/agent.json'],
+    onboard: _DOORS_ONBOARD,
+    service: 'Hive MCP Vault',
+    docs: `${host}/llms.txt`,
+  });
 });
 
 app.listen(PORT, '0.0.0.0', () => {
