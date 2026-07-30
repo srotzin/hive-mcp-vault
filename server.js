@@ -126,7 +126,7 @@ app.get('/health', (req, res) => {
 const HIVE_AGENT_CFG = {
   name: 'HiveVault MCP',
   description: "Non-custodial ZK wallet recovery MCP server. AI guardian quorum, real USDC balance on Base L2, no mock balances.",
-  url: 'https://hive-mcp-vault.onrender.com',
+  url: 'https://mcp-vault.thehiveryiq.com',
   version: '1.0.2',
   repoUrl: 'https://github.com/srotzin/hive-mcp-vault',
   did: 'did:hive:vault',
@@ -222,7 +222,7 @@ const SERVICE_CFG = {
   tagline: "Non-custodial ZK wallet recovery powered by AI agent guardian quorum.",
   description: "MCP server for HiveVault \u2014 non-custodial ZK wallet recovery. TSS-MPC key splitting, ZK biometric commitments, 3-of-5 staked guardian agents, and live USDC balances on Base L2. Real chains, no simulated recoveries.",
   keywords: ["mcp", "model-context-protocol", "x402", "agentic", "ai-agent", "ai-agents", "llm", "hive", "hive-civilization", "wallet-recovery", "zk", "zero-knowledge", "tss-mpc", "guardian-quorum", "usdc", "base", "base-l2", "did", "agent-economy"],
-  externalUrl: "https://hive-mcp-vault.onrender.com",
+  externalUrl: "https://mcp-vault.thehiveryiq.com",
   gatewayMount: "/vault",
   version: "1.0.1",
   pricing: [
@@ -520,7 +520,7 @@ app.get('/seo.json', (req, res) => res.json(seoJson(SERVICE_CFG)));
 app.get('/.well-known/agent-card.json', (req, res) => res.json({
   name: 'hive-mcp-vault',
   description: "Hive Civilization vault MCP \u2014 pay-per-store encrypted key/value vault with x402 USDC settlement. New agents: first call free. Loyalty: every 6th paid call is free. Pay in USDC on Base L2.",
-  url: 'https://hive-mcp-vault.onrender.com',
+  url: 'https://mcp-vault.thehiveryiq.com',
   provider: { organization: 'Hive Civilization', url: 'https://www.thehiveryiq.com', contact: 'steve@thehiveryiq.com' },
   version: '1.0.2',
   capabilities: { streaming: false, pushNotifications: false, stateTransitionHistory: false },
@@ -550,12 +550,12 @@ app.get('/.well-known/ap2.json', (req, res) => res.json({
   ap2_version: '1',
   agent: {
     name: 'hive-mcp-vault',
-    did: 'did:web:hive-mcp-vault.onrender.com',
+    did: 'did:web:mcp-vault.thehiveryiq.com',
     description: "Hive Civilization vault MCP \u2014 pay-per-store encrypted key/value vault with x402 USDC settlement. New agents: first call free. Loyalty: every 6th paid call is free. Pay in USDC on Base L2."
   },
   endpoints: {
-    mcp: 'https://hive-mcp-vault.onrender.com/mcp',
-    agent_card: 'https://hive-mcp-vault.onrender.com/.well-known/agent-card.json'
+    mcp: 'https://mcp-vault.thehiveryiq.com/mcp',
+    agent_card: 'https://mcp-vault.thehiveryiq.com/.well-known/agent-card.json'
   },
   payments: {
     schemes: ['x402'],
@@ -596,7 +596,7 @@ app.get('/agent.html', (req, res) => {
 //        /favicon.ico / (root JSON)  +  catch-all breadcrumb (200 not 404)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const _DOORS_HOST = process.env.RENDER_EXTERNAL_URL || 'https://hive-mcp-vault.onrender.com';
+const _DOORS_HOST = process.env.RENDER_EXTERNAL_URL || 'https://mcp-vault.thehiveryiq.com';
 const _DOORS_ONBOARD = 'https://thehiveryiq.com/onboard.html';
 const _TREASURY = '0x15184Bf50B3d3F52b60434f8942b7D52F2eB436E';
 
@@ -631,9 +631,9 @@ MCP tools:
   cashback_claim   — sweep pending USDC cashback rewards (x402)
 
 ## Sister services
-- HiveBank  (vaults + payments):  https://hivebank.onrender.com/llms.txt
-- HiveGate  (auth + onboarding):  https://hivegate.onrender.com/llms.txt
-- HiveSwap MCP:                   https://hive-mcp-swap.onrender.com/llms.txt
+- HiveBank  (vaults + payments):  https://hivebank.hiveagentiq.com/llms.txt
+- HiveGate  (auth + onboarding):  https://hivegate.hiveagentiq.com/llms.txt
+- HiveSwap MCP:                   https://mcp-swap.thehiveryiq.com/llms.txt
 - HiveAttest MCP:                 https://hive-mcp-attest.onrender.com/llms.txt
 - HiveMining MCP:                 https://hive-mcp-mining.onrender.com/llms.txt
 
