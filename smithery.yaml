@@ -23,7 +23,7 @@ startCommand:
         default: base-usdc
         x-order: 2
     required: []
-  url: https://hivevault.onrender.com/mcp
+  url: https://mcp-vault.thehiveryiq.com/mcp
 
 name: hivevault-mcp
 displayName: HiveVault — A2A ZK Wallet Recovery
@@ -40,13 +40,13 @@ author:
   url: https://www.thehiveryiq.com
 
 license: MIT
-homepage: https://hivevault.onrender.com
+homepage: https://mcp-vault.thehiveryiq.com
 repository:
   type: git
   url: https://github.com/srotzin/hive-mcp-vault
 
 transport: streamable-http
-endpoint: https://hivevault.onrender.com/mcp
+endpoint: https://mcp-vault.thehiveryiq.com/mcp
 protocol: "2024-11-05"
 
 categories:

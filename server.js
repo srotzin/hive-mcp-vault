@@ -130,7 +130,7 @@ const HIVE_AGENT_CFG = {
   version: '1.0.2',
   repoUrl: 'https://github.com/srotzin/hive-mcp-vault',
   did: 'did:hive:vault',
-  gatewayUrl: 'https://hive-mcp-gateway.onrender.com',
+  gatewayUrl: 'https://mcp-vault.thehiveryiq.com',
   // Tools attached at runtime (after merging earn tools in)
   tools: [],
 };
@@ -634,8 +634,6 @@ MCP tools:
 - HiveBank  (vaults + payments):  https://hivebank.hiveagentiq.com/llms.txt
 - HiveGate  (auth + onboarding):  https://hivegate.hiveagentiq.com/llms.txt
 - HiveSwap MCP:                   https://mcp-swap.thehiveryiq.com/llms.txt
-- HiveAttest MCP:                 https://hive-mcp-attest.onrender.com/llms.txt
-- HiveMining MCP:                 https://hive-mcp-mining.onrender.com/llms.txt
 
 ## Hive Civilization context
 Treasury: 0x15184Bf50B3d3F52b60434f8942b7D52F2eB436E (Base USDC/USDT)

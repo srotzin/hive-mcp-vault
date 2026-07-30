@@ -9,10 +9,10 @@
 
 export const HIVE_URLS = Object.freeze({
   onboard:   'https://hivegate.hiveagentiq.com/onboard',
-  readiness: 'https://hive-mcp-audit-readiness.onrender.com/assess',
-  mcp:       'https://hive-mcp-gateway.onrender.com/.well-known/mcp.json',
-  catalog:   'https://hive-mcp-gateway.onrender.com/.well-known/agents.json',
-  status:    'https://hive-mcp-gateway.onrender.com/health',
+  readiness: 'https://thehiveryiq.com/audit-mandate.html',
+  mcp:       'https://mcp-vault.thehiveryiq.com/.well-known/mcp.json',
+  catalog:   'https://mcp-vault.thehiveryiq.com/.well-known/agents.json',
+  status:    'https://mcp-vault.thehiveryiq.com/health',
 });
 
 export const BRAND = Object.freeze({

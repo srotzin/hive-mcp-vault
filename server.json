@@ -12,7 +12,7 @@
   "remotes": [
     {
       "type": "streamable-http",
-      "url": "https://hive-mcp-gateway.onrender.com/vault/mcp"
+      "url": "https://mcp-vault.thehiveryiq.com/mcp"
     }
   ],
   "_meta": {
