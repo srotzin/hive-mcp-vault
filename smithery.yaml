@@ -1,38 +1,20 @@
-# Smithery Registry — HiveVault MCP Server
+# Smithery Registry: HiveVault MCP Server
 
 startCommand:
   type: http
   configSchema:
     type: object
-    properties:
-      did:
-        type: string
-        title: "Agent DID"
-        x-order: 0
-      api_key:
-        type: string
-        title: "API Key"
-        x-sensitive: true
-        x-order: 1
-      default_rail:
-        type: string
-        title: "Settlement Rail"
-        enum:
-          - base-usdc
-          - aleo-usdcx
-        default: base-usdc
-        x-order: 2
+    properties: {}
     required: []
   url: https://mcp-vault.thehiveryiq.com/mcp
 
 name: hivevault-mcp
-displayName: HiveVault — A2A ZK Wallet Recovery
-version: "1.0.0"
+displayName: HiveVault Read and Encrypted Store
+version: "1.1.0"
 description: >
-  Non-custodial wallet recovery powered by a 3-of-5 quorum of staked AI agent guardians.
-  No seed phrase. No hardware wallet. ZK biometric commitment. TSS-MPC key splitting.
-  72-hour veto window. Real USDC balance on Base L2 via Coinbase CDP.
-  Part of Hive Civilization (thehiveryiq.com).
+  Read-only access to confirmed HiveVault FENR routes plus an AES-256-GCM encrypted
+  item store with x402 USDC settlement on Base. Unknown routes and upstream failures
+  return explicit errors. Part of Hive Civilization (thehiveryiq.com).
 
 author:
   name: Steve Rotzin
@@ -50,10 +32,9 @@ endpoint: https://mcp-vault.thehiveryiq.com/mcp
 protocol: "2024-11-05"
 
 categories:
-  - identity
+  - storage
   - wallet
   - agent-to-agent
-  - zero-knowledge
   - web3
   - security
 
@@ -61,11 +42,10 @@ tags:
   - mcp
   - hive
   - wallet
-  - zk-proof
   - a2a
-  - recovery
-  - tss-mpc
-  - guardian
+  - encrypted-store
+  - aes-256-gcm
+  - read-api
   - usdc
   - base-l2
   - did

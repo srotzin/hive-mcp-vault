@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: hive-mcp-vault
+    runtime: node
+    plan: starter
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: BOGO_DB_PATH
+        value: /var/data/hive-mcp-vault/bogo_vault.db
+      - key: INTERNAL_KEY
+        sync: false
+    disk:
+      name: hive-mcp-vault-data
+      mountPath: /var/data/hive-mcp-vault
+      sizeGB: 1

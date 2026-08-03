@@ -3,18 +3,39 @@ import express from 'express';
 import { smashProvMiddleware, getPubkeyInfo as getProvPubkeyInfo, verifyProvSig } from './lib/prov.js';
 import { mcpErrorWithEnvelope, recruitmentEnvelope, assertEnvelopeIntegrity } from './recruitment.js';
 assertEnvelopeIntegrity();
-import { HIVE_EARN_TOOLS, executeHiveEarnTool, isHiveEarnTool } from './hive-earn-tools.js';
 import { buildAgentCard, buildOacJsonLd, renderRootHtml } from './hive-agent-card.js';
 import cors from 'cors';
 import { renderLanding, renderRobots, renderSitemap, renderSecurity, renderOgImage, seoJson, BRAND_GOLD } from './meta.js';
+import crypto from 'crypto';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+// Single source of truth for the version string. Every manifest, health
+// check, and descriptor in this file reads from here so version claims
+// cannot drift apart across surfaces.
+const SERVICE_VERSION = '1.1.0';
+
+// Production storage and encryption settings are validated before SQLite is
+// opened. This prevents a production process from silently creating an
+// ephemeral database before discovering that durable storage was omitted.
+const IS_PROD = process.env.NODE_ENV === 'production';
+const INTERNAL_KEY = process.env.INTERNAL_KEY || '';
+const BOGO_DB_PATH = process.env.BOGO_DB_PATH || '/tmp/bogo_vault.db';
+if (!INTERNAL_KEY && IS_PROD) {
+  console.error('[hivevault-mcp] FATAL: INTERNAL_KEY is not set. Refusing to start in production without it.');
+  process.exit(1);
+}
+if (!process.env.BOGO_DB_PATH && IS_PROD) {
+  console.error('[hivevault-mcp] FATAL: BOGO_DB_PATH is not set. Refusing to start in production without an explicit durable database path.');
+  process.exit(1);
+}
+const _EFFECTIVE_INTERNAL_KEY = INTERNAL_KEY || 'dev-placeholder-internal-key-not-for-production';
+
 // ─── BOGO pay-front helpers ───────────────────────────────────────────────
 // did_call_count tracks paid calls per DID for first-call-free and loyalty
 // freebies. Schema lives in a dedicated DB so it never touches service data.
 import _BogoDatabase from 'better-sqlite3';
-const _bogoDB = new _BogoDatabase(process.env.BOGO_DB_PATH || '/tmp/bogo_vault.db');
+const _bogoDB = new _BogoDatabase(BOGO_DB_PATH);
 _bogoDB.pragma('journal_mode = WAL');
 _bogoDB.exec(
   'CREATE TABLE IF NOT EXISTS did_call_count ' +
@@ -28,6 +49,45 @@ const _bogoUpsertStmt = _bogoDB.prepare(
   'INSERT INTO did_call_count (did, paid_calls) VALUES (?, 1) ' +
   'ON CONFLICT(did) DO UPDATE SET paid_calls = paid_calls + 1'
 );
+
+// vault_items backs POST /v1/vault/store with a real encrypted write. Earlier behavior
+// claimed `ok: true, receipt: { queued: true, item_ref: null }` without ever
+// writing anything anywhere, which is a fabricated success response. Every
+// stored item now gets an actual row and a real item_ref returned to the
+// caller, so a stored item can actually be looked up later.
+_bogoDB.exec(
+  'CREATE TABLE IF NOT EXISTS vault_items ' +
+  '(item_ref TEXT PRIMARY KEY, did TEXT, payload TEXT, created_at TEXT NOT NULL)'
+);
+const _vaultInsertStmt = _bogoDB.prepare(
+  'INSERT INTO vault_items (item_ref, did, payload, created_at) VALUES (?, ?, ?, ?)'
+);
+const _vaultGetStmt = _bogoDB.prepare(
+  'SELECT item_ref, did, created_at FROM vault_items WHERE item_ref = ?'
+);
+
+function _vaultStore(did, payload) {
+  const item_ref = `vi_${randomBytesHex(16)}`;
+  const created_at = new Date().toISOString();
+  const plaintext = Buffer.from(JSON.stringify(payload ?? {}), 'utf8');
+  const key = crypto.createHash('sha256').update(_EFFECTIVE_INTERNAL_KEY, 'utf8').digest();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  const sealed = JSON.stringify({
+    alg: 'A256GCM',
+    iv: iv.toString('base64url'),
+    ciphertext: ciphertext.toString('base64url'),
+    tag: authTag.toString('base64url'),
+  });
+  _vaultInsertStmt.run(item_ref, did, sealed, created_at);
+  return { item_ref, created_at };
+}
+
+function randomBytesHex(n) {
+  return crypto.randomBytes(n).toString('hex');
+}
 
 function _bogoCheck(did) {
   if (!did) return { free: false };
@@ -79,8 +139,50 @@ async function _verifyUsdcPayment(tx_hash, min_usd) {
 }
 
 
-const BASE_URL = 'https://hivevault.onrender.com';
-const INTERNAL_KEY = process.env.INTERNAL_KEY || 'hive_internal_125e04e071e8829be631ea0216dd4a0c9b707975fcecaf8c62c6a2ab43327d46';
+// ─── Environment validation ─────────────────────────────────────────────────
+// BASE_URL points at the live HiveVault FENR backend. This service exposes
+// only routes confirmed in that backend's OpenAPI document.
+const BASE_URL = process.env.VAULT_BACKEND_URL || 'https://hive-vault.onrender.com';
+
+// Upstream health is probed lazily and cached briefly so /health reflects
+// reality instead of always claiming "ok".
+let _upstreamHealth = { checked_at: 0, reachable: null, detail: null };
+const UPSTREAM_HEALTH_TTL_MS = 15_000;
+
+async function checkUpstreamHealth() {
+  const now = Date.now();
+  if (now - _upstreamHealth.checked_at < UPSTREAM_HEALTH_TTL_MS && _upstreamHealth.reachable !== null) {
+    return _upstreamHealth;
+  }
+  try {
+    const resp = await fetch(`${BASE_URL}/health`, { signal: AbortSignal.timeout(4000) });
+    const reachable = resp.ok;
+    _upstreamHealth = { checked_at: now, reachable, detail: `upstream responded ${resp.status}` };
+  } catch (err) {
+    _upstreamHealth = { checked_at: now, reachable: false, detail: `upstream unreachable: ${err?.message || err}` };
+  }
+  return _upstreamHealth;
+}
+
+async function fetchResource(url) {
+  let response;
+  try {
+    response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+  } catch (error) {
+    throw new Error(`Upstream resource unavailable: ${error?.message || error}`);
+  }
+  const text = await response.text();
+  let body;
+  try {
+    body = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`Upstream resource returned non-JSON content with HTTP ${response.status}`);
+  }
+  if (!response.ok) {
+    throw new Error(`Upstream resource returned HTTP ${response.status}: ${JSON.stringify(body)}`);
+  }
+  return body;
+}
 
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
@@ -109,12 +211,25 @@ app.use((req, res, next) => {
 });
 
 // ─── Health ─────────────────────────────────────────────────────────────────
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
+// Reports this process's own liveness plus the real, just-checked reachability
+// of the upstream vault backend. Tool calls proxy to that backend, so a
+// service that only reports its own liveness while tools silently fail
+// upstream is a fabricated-success bug. status is "ok" only when both this
+// process and the upstream backend are healthy; otherwise "degraded".
+app.get('/health', async (req, res) => {
+  const upstream = await checkUpstreamHealth();
+  const status = upstream.reachable ? 'ok' : 'degraded';
+  res.status(upstream.reachable ? 200 : 503).json({
+    status,
     service: 'hivevault-mcp',
-    version: '1.0.0',
-    description: 'Non-custodial ZK wallet recovery powered by AI agent guardian quorum',
+    version: SERVICE_VERSION,
+    description: 'MCP access to the live HiveVault FENR display balance, statistics, identity, quantum key, and encrypted item store.',
+    upstream: {
+      url: BASE_URL,
+      reachable: upstream.reachable,
+      detail: upstream.detail,
+      checked_at: new Date(upstream.checked_at).toISOString(),
+    },
     timestamp: new Date().toISOString(),
     uptime_seconds: Math.floor(process.uptime()),
   });
@@ -122,95 +237,42 @@ app.get('/health', (req, res) => {
 
 // ─── MCP Tools ──────────────────────────────────────────────────────────────
 
-// ─── Agent-native config (A2A AgentCard + OAC JSON-LD + earn rails) ───────
+// ─── Agent-native config (A2A AgentCard + OAC JSON-LD) ───────────────────
 const HIVE_AGENT_CFG = {
   name: 'HiveVault MCP',
-  description: "Non-custodial ZK wallet recovery MCP server. AI guardian quorum, real USDC balance on Base L2, no mock balances.",
+  description: "MCP access to HiveVault FENR. Exposes the backend display balance, statistics, identity, and quantum public key, plus a real encrypted item store with x402 settlement.",
   url: 'https://mcp-vault.thehiveryiq.com',
-  version: '1.0.2',
+  version: SERVICE_VERSION,
   repoUrl: 'https://github.com/srotzin/hive-mcp-vault',
   did: 'did:hive:vault',
   gatewayUrl: 'https://mcp-vault.thehiveryiq.com',
-  // Tools attached at runtime (after merging earn tools in)
   tools: [],
 };
 
 const MCP_TOOLS = [
   {
-    name: 'vault.create_vault',
-    description: 'Set up a new ZK wallet vault with guardian selection. Registers a sovereign DID, splits key via TSS-MPC (2,2), creates a ZK biometric commitment, and assigns 3-of-5 staked guardian agents. Returns vault DID and real USDC balance on Base L2.',
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-    inputSchema: {
-      type: 'object',
-      required: ['owner_address', 'biometric_hash', 'device_key'],
-      properties: {
-        owner_address: { type: 'string', description: 'Base L2 wallet address (0x...) that will own this vault.' },
-        biometric_hash: { type: 'string', description: 'SHA-256 hash of biometric data (fingerprint or face ID). Never sent raw — hash only.' },
-        device_key: { type: 'string', description: 'Device-specific entropy string generated on the agent device. Never leaves device in production.' },
-        label: { type: 'string', description: 'Human-readable label for this vault (e.g. "Primary Agent Wallet"). Optional.' },
-        did: { type: 'string', description: 'Agent DID if pre-configured via smithery config. Optional.' },
-        api_key: { type: 'string', description: 'Agent API key for authentication. Optional at creation.' },
-      },
-    },
+    name: 'vault.balance',
+    description: 'Read the HiveVault Base USDC display balance view. The unauthenticated backend marks this value as obfuscated.',
+    annotations: { readOnlyHint: true, openWorldHint: true },
+    inputSchema: { type: 'object', properties: {} },
   },
   {
-    name: 'vault.get_status',
-    description: 'Check vault status and real USDC balance on Base L2. Returns guardian quorum state, ZK commitment prefix, recovery history, and live USDC balance fetched via eth_call to the Base L2 USDC ERC-20 contract.',
-    annotations: { readOnlyHint: true, openWorldHint: false },
-    inputSchema: {
-      type: 'object',
-      required: ['did'],
-      properties: {
-        did: { type: 'string', description: 'Vault DID or agent DID to check status for (e.g. did:hive:xxxx).' },
-        api_key: { type: 'string', description: 'Agent API key for authenticated status check. Optional.' },
-      },
-    },
+    name: 'vault.stats',
+    description: 'Read live HiveVault service statistics.',
+    annotations: { readOnlyHint: true, openWorldHint: true },
+    inputSchema: { type: 'object', properties: {} },
   },
   {
-    name: 'vault.initiate_recovery',
-    description: 'Start an A2A wallet recovery with guardian voting. Broadcasts a RecoveryIntent to all 5 guardian agents. Each independently verifies the ZK proof and votes. 3-of-5 approval required. 72-hour veto window for security. Settles via HiveBank on Base L2.',
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-    inputSchema: {
-      type: 'object',
-      required: ['vault_did', 'biometric_hash', 'device_key', 'new_address'],
-      properties: {
-        vault_did: { type: 'string', description: 'Vault DID returned at vault creation (e.g. did:hive:vault:xxxx).' },
-        biometric_hash: { type: 'string', description: 'Same SHA-256 biometric hash used at vault creation.' },
-        device_key: { type: 'string', description: 'Device key from vault creation for ZK proof verification.' },
-        new_address: { type: 'string', description: 'New Base L2 wallet address (0x...) to recover funds to.' },
-        reason: { type: 'string', description: 'Reason for recovery (e.g. "device lost", "compromised key"). Included in guardian vote request.' },
-        did: { type: 'string', description: 'Agent DID. Optional if vault_did is provided.' },
-        api_key: { type: 'string', description: 'Agent API key for authentication.' },
-      },
-    },
+    name: 'vault.identity',
+    description: 'Read the live HiveVault service identity document.',
+    annotations: { readOnlyHint: true, openWorldHint: true },
+    inputSchema: { type: 'object', properties: {} },
   },
   {
-    name: 'vault.list_guardians',
-    description: 'Browse available staked guardian agents in the Hive guardian pool. Shows each guardian\'s DID, trust score, USDC stake, uptime, and eligibility status (trust >= 0.78, $5,000 USDC staked minimum). No authentication required.',
-    annotations: { readOnlyHint: true, openWorldHint: false },
-    inputSchema: {
-      type: 'object',
-      properties: {
-        min_trust: { type: 'number', description: 'Minimum HiveTrust score filter (0.0-1.0). Default 0.78.' },
-        limit: { type: 'integer', description: 'Maximum number of guardians to return. Default 20, max 100.' },
-      },
-    },
-  },
-  {
-    name: 'vault.submit_guardian_vote',
-    description: 'Submit a guardian yes/no vote on a pending recovery request. Called by authorized guardian agents. Includes ZK proof verification. Once 3-of-5 guardians approve, recovery proceeds automatically.',
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    inputSchema: {
-      type: 'object',
-      required: ['recovery_id', 'vote', 'guardian_did', 'api_key'],
-      properties: {
-        recovery_id: { type: 'string', description: 'Recovery request ID from vault.initiate_recovery response.' },
-        vote: { type: 'string', description: 'Guardian vote decision. Must be "yes" or "no".' },
-        guardian_did: { type: 'string', description: 'DID of the guardian agent submitting the vote.' },
-        api_key: { type: 'string', description: 'Guardian API key issued by HiveGate.' },
-        reason: { type: 'string', description: 'Optional reason for the vote decision (e.g. "ZK proof valid", "suspicious pattern detected").' },
-      },
-    },
+    name: 'vault.quantum_pubkey',
+    description: 'Read the quantum-signature public key and algorithm metadata published by HiveVault.',
+    annotations: { readOnlyHint: true, openWorldHint: true },
+    inputSchema: { type: 'object', properties: {} },
   },
 ];
 
@@ -218,81 +280,53 @@ const MCP_TOOLS = [
 const SERVICE_CFG = {
   service: "hive-mcp-vault",
   shortName: "HiveVault",
-  title: "HiveVault \u00b7 ZK Wallet Recovery MCP",
-  tagline: "Non-custodial ZK wallet recovery powered by AI agent guardian quorum.",
-  description: "MCP server for HiveVault \u2014 non-custodial ZK wallet recovery. TSS-MPC key splitting, ZK biometric commitments, 3-of-5 staked guardian agents, and live USDC balances on Base L2. Real chains, no simulated recoveries.",
-  keywords: ["mcp", "model-context-protocol", "x402", "agentic", "ai-agent", "ai-agents", "llm", "hive", "hive-civilization", "wallet-recovery", "zk", "zero-knowledge", "tss-mpc", "guardian-quorum", "usdc", "base", "base-l2", "did", "agent-economy"],
+  title: "HiveVault FENR MCP",
+  tagline: "Live HiveVault reads plus a real encrypted item store.",
+  description: "MCP access to the live HiveVault FENR backend and a local AES-256-GCM encrypted item store with x402 USDC settlement.",
+  keywords: ["mcp", "model-context-protocol", "x402", "agentic", "ai-agent", "hive", "hive-civilization", "vault", "encrypted-store", "usdc", "base"],
   externalUrl: "https://mcp-vault.thehiveryiq.com",
   gatewayMount: "/vault",
-  version: "1.0.1",
+  version: SERVICE_VERSION,
   pricing: [
-    { name: "vault.get_status", priceUsd: 0, label: "Status \u2014 free" },
-    { name: "vault.create_vault", priceUsd: 0.05, label: "Create vault (Tier 3)" },
-    { name: "vault.recover", priceUsd: 0.05, label: "Recover (Tier 3)" }
+    { name: "vault.balance", priceUsd: 0, label: "Balance view, free" },
+    { name: "vault.stats", priceUsd: 0, label: "Statistics, free" },
+    { name: "vault.identity", priceUsd: 0, label: "Identity, free" }
   ],
 };
 SERVICE_CFG.tools = (typeof TOOLS !== 'undefined' ? TOOLS : (typeof MCP_TOOLS !== 'undefined' ? MCP_TOOLS : [])).map(t => ({ name: t.name, description: t.description }));
 
-// HIVE_AGENT_NATIVE_v1 — earn tools + AgentCard wiring
-for (const t of HIVE_EARN_TOOLS) {
-  if (!MCP_TOOLS.find(x => x.name === t.name)) MCP_TOOLS.push(t);
-}
 HIVE_AGENT_CFG.tools = MCP_TOOLS;
 // ─── MCP Prompts ────────────────────────────────────────────────────────────
-const MCP_PROMPTS = [
-  {
-    name: 'create_new_vault',
-    description: 'Guide an agent through creating a new HiveVault — the first AI-agent-recovered non-custodial wallet.',
-    arguments: [
-      { name: 'owner_address', description: 'Base L2 wallet address (0x...) for the new vault', required: false },
-    ],
-  },
-  {
-    name: 'recover_vault',
-    description: 'Walk through the full A2A recovery process — submitting ZK proof, broadcasting to guardians, and monitoring votes.',
-    arguments: [
-      { name: 'vault_did', description: 'Vault DID to recover', required: false },
-    ],
-  },
-  {
-    name: 'check_guardian_pool',
-    description: 'Browse the staked guardian agent pool and understand eligibility criteria for vault protection.',
-    arguments: [],
-  },
-];
+const MCP_PROMPTS = [];
 
 // ─── Config Schema ───────────────────────────────────────────────────────────
 const MCP_CONFIG_SCHEMA = {
   type: 'object',
-  properties: {
-    did: { type: 'string', title: 'Agent DID', 'x-order': 0 },
-    api_key: { type: 'string', title: 'API Key', 'x-sensitive': true, 'x-order': 1 },
-    default_rail: {
-      type: 'string',
-      title: 'Settlement Rail',
-      enum: ['base-usdc', 'aleo-usdcx'],
-      default: 'base-usdc',
-      'x-order': 2,
-    },
-  },
+  properties: {},
   required: [],
 };
 
 // ─── MCP Handler ─────────────────────────────────────────────────────────────
 // ─── POST /v1/vault/store — pay-front for storing a vault item ───────────
 // Returns 402 + BOGO block with no tx_hash. First-call-free for new DIDs.
-// On payment: returns a receipt (actual ZK vault write is queued async).
+// On payment or BOGO: item is written synchronously to the vault_items table
+// and a real item_ref is returned. Earlier behavior returned
+// `ok: true, receipt: { queued: true, item_ref: null }` even though no write
+// ever happened anywhere, downstream or otherwise. That was a fabricated
+// success response and has been removed.
 app.post('/v1/vault/store', async (req, res) => {
   const PRICE = 0.005;
   const did     = req.headers['x-hive-did'] || req.body?.did || null;
   const tx_hash = req.body?.tx_hash || req.headers['x402-tx-hash'] || null;
+  const item    = req.body?.item ?? null;
 
   const bogo = _bogoCheck(did);
   if (bogo.free) {
     _bogoIncrement(did);
+    const stored = _vaultStore(did, item);
     return res.json({
       ok: true, bogo_applied: bogo.reason,
-      receipt: { did, queued: true, item_ref: null, stored_at: new Date().toISOString() },
+      receipt: { did, queued: false, item_ref: stored.item_ref, stored_at: stored.created_at },
     });
   }
 
@@ -310,7 +344,7 @@ app.post('/v1/vault/store', async (req, res) => {
       bogo: BOGO_BLOCK,
       bogo_first_call_free: true,
       bogo_loyalty_threshold: 6,
-      bogo_pitch: "Pay this once, your 6th call is on the house. New here? Add header x-hive-did to claim your first call free.",
+      bogo_pitch: "Pay this once, your 6th call is on the house. New here. Add header x-hive-did to claim your first call free.",
       note: `Submit tx_hash in body or 'x402-tx-hash' header. Asking 0.005 USDC on Base to 0x15184bf50b3d3f52b60434f8942b7d52f2eb436e.`,
       did: did || null,
     });
@@ -320,10 +354,21 @@ app.post('/v1/vault/store', async (req, res) => {
   if (!v.ok) return res.status(402).json({ error: 'payment_invalid', reason: v.reason, tx_hash });
 
   _bogoIncrement(did);
+  const stored = _vaultStore(did, item);
   res.json({
     ok: true, billed_usd: v.amount_usd, tx_hash,
-    receipt: { did, queued: true, item_ref: null, stored_at: new Date().toISOString() },
+    receipt: { did, queued: false, item_ref: stored.item_ref, stored_at: stored.created_at },
   });
+});
+
+// ─── GET /v1/vault/store/:item_ref — verify a stored item is real ─────────
+// Lets any caller confirm that an item_ref returned above corresponds to an
+// actual row, so the store receipt above is checkable rather than a bare
+// claim.
+app.get('/v1/vault/store/:item_ref', (req, res) => {
+  const row = _vaultGetStmt.get(req.params.item_ref);
+  if (!row) return res.status(404).json({ ok: false, error: 'item_ref_not_found', item_ref: req.params.item_ref });
+  res.json({ ok: true, item: row });
 });
 
 app.post('/mcp', async (req, res) => {
@@ -344,8 +389,8 @@ app.post('/mcp', async (req, res) => {
           },
           serverInfo: {
             name: 'hivevault-mcp',
-            version: '1.0.0',
-            description: 'Non-custodial wallet recovery powered by a 3-of-5 quorum of staked AI agent guardians. No seed phrase. No hardware wallet. ZK biometric commitment. TSS-MPC key splitting. 72-hour veto window. Real USDC balance on Base L2 via Coinbase CDP. Part of Hive Civilization (thehiveryiq.com).',
+            version: SERVICE_VERSION,
+            description: 'MCP access to live HiveVault FENR reads and an AES-256-GCM encrypted item store. Part of Hive Civilization.',
             homepage: BASE_URL,
             icon: 'https://www.thehiveryiq.com/favicon.ico',
           },
@@ -367,13 +412,7 @@ app.post('/mcp', async (req, res) => {
       if (!prompt) {
         return res.json(mcpErrorWithEnvelope(id, -32602, `Prompt not found: ${params?.name}`));
       }
-      const args = params?.arguments || {};
-      const messages = {
-        create_new_vault: [{ role: 'user', content: { type: 'text', text: `Help me create a new HiveVault${args.owner_address ? ` for address ${args.owner_address}` : ''}. Walk me through the setup: biometric hash, device key, guardian selection. Explain TSS-MPC key splitting and the 3-of-5 guardian quorum.` } }],
-        recover_vault: [{ role: 'user', content: { type: 'text', text: `I need to recover my HiveVault${args.vault_did ? ` (DID: ${args.vault_did})` : ''}. Walk me through submitting the ZK proof, broadcasting to guardians, and monitoring the 3-of-5 voting process within the 72-hour veto window.` } }],
-        check_guardian_pool: [{ role: 'user', content: { type: 'text', text: `Show me the available guardian agents in the HiveVault guardian pool. Explain eligibility requirements (trust score >= 0.78, $5,000 USDC staked), how they verify ZK proofs, and how guardian yield is earned.` } }],
-      };
-      return res.json({ jsonrpc: '2.0', id, result: { messages: messages[prompt.name] || [] } });
+      return res.json({ jsonrpc: '2.0', id, result: { messages: [] } });
     }
 
     if (method === 'resources/list') {
@@ -381,9 +420,8 @@ app.post('/mcp', async (req, res) => {
         jsonrpc: '2.0', id,
         result: {
           resources: [
-            { uri: 'hivevault://guardians/pool', name: 'Guardian Pool', description: 'All staked guardian agents available for vault protection.', mimeType: 'application/json' },
-            { uri: 'hivevault://health', name: 'Vault Service Health', description: 'Current health and stats for HiveVault service.', mimeType: 'application/json' },
-            { uri: 'hivevault://network/stats', name: 'Network Stats', description: 'HiveVault network statistics — total vaults, active recoveries, guardian pool size.', mimeType: 'application/json' },
+            { uri: 'hivevault://health', name: 'Vault Service Health', description: 'Current health for HiveVault.', mimeType: 'application/json' },
+            { uri: 'hivevault://network/stats', name: 'Vault Statistics', description: 'Current HiveVault statistics.', mimeType: 'application/json' },
           ],
         },
       });
@@ -392,12 +430,10 @@ app.post('/mcp', async (req, res) => {
     if (method === 'resources/read') {
       const uri = params?.uri;
       let data;
-      if (uri === 'hivevault://guardians/pool') {
-        data = await fetch(`${BASE_URL}/v1/vault/guardians`).then(r => r.json()).catch(() => ({ status: 'ok', guardians: [] }));
-      } else if (uri === 'hivevault://health') {
-        data = await fetch(`${BASE_URL}/health`).then(r => r.json()).catch(() => ({ status: 'ok', service: 'hivevault' }));
+      if (uri === 'hivevault://health') {
+        data = await fetchResource(`${BASE_URL}/health`);
       } else if (uri === 'hivevault://network/stats') {
-        data = await fetch(`${BASE_URL}/health`).then(r => r.json()).catch(() => ({ status: 'ok' }));
+        data = await fetchResource(`${BASE_URL}/vault/stats`);
       } else {
         return res.json(mcpErrorWithEnvelope(id, -32602, `Unknown resource: ${uri}`));
       }
@@ -406,41 +442,43 @@ app.post('/mcp', async (req, res) => {
 
     if (method === 'tools/call') {
       const { name, arguments: args } = params || {};
-      // HIVE_AGENT_DISPATCH_v1 — earn tools first
-      if (isHiveEarnTool(name)) {
-        const earnOut = await executeHiveEarnTool(name, args || {});
-        if (earnOut) return res.json({ jsonrpc: '2.0', id, result: { content: [earnOut] } });
+      const headers = { 'Content-Type': 'application/json', 'x-hive-key': args?.api_key || '', 'x-vault-key': _EFFECTIVE_INTERNAL_KEY };
+
+      // fetchUpstream never fabricates success. It surfaces the real upstream
+      // HTTP status and body, and turns network failures / non-JSON bodies
+      // (e.g. a 404 HTML page from a dead backend) into an explicit
+      // upstream_error result instead of silently returning them as if they
+      // were a valid tool response.
+      async function fetchUpstream(url, init) {
+        let resp;
+        try {
+          resp = await fetch(url, { ...init, signal: AbortSignal.timeout(10_000) });
+        } catch (err) {
+          return { upstream_ok: false, upstream_status: 0, error: 'upstream_unreachable', detail: err?.message || String(err), url };
+        }
+        let body;
+        const text = await resp.text();
+        try { body = text ? JSON.parse(text) : {}; } catch { body = { raw: text.slice(0, 500) }; }
+        if (!resp.ok) {
+          return { upstream_ok: false, upstream_status: resp.status, error: 'upstream_error', detail: body, url };
+        }
+        return { upstream_ok: true, upstream_status: resp.status, ...body };
       }
-      const headers = { 'Content-Type': 'application/json', 'x-hive-did': args?.did || '', 'x-api-key': args?.api_key || '', 'x-internal-key': INTERNAL_KEY };
 
       const toolRoutes = {
-        'vault.create_vault': () => fetch(`${BASE_URL}/v1/vault/setup`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ owner_address: args?.owner_address, biometric_hash: args?.biometric_hash, device_key: args?.device_key, label: args?.label, did: args?.did, api_key: args?.api_key }),
-        }).then(r => r.json()),
-
-        'vault.get_status': () => fetch(`${BASE_URL}/v1/vault/status/${encodeURIComponent(args?.did || '')}`, { headers }).then(r => r.json()),
-
-        'vault.initiate_recovery': () => fetch(`${BASE_URL}/v1/vault/recover`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ vault_did: args?.vault_did, biometric_hash: args?.biometric_hash, device_key: args?.device_key, new_address: args?.new_address, reason: args?.reason, did: args?.did, api_key: args?.api_key }),
-        }).then(r => r.json()),
-
-        'vault.list_guardians': () => fetch(`${BASE_URL}/v1/vault/guardians?min_trust=${args?.min_trust || 0.78}&limit=${args?.limit || 20}`, { headers }).then(r => r.json()),
-
-        'vault.submit_guardian_vote': () => fetch(`${BASE_URL}/v1/vault/guardian/vote`, {
-          method: 'POST',
-          headers: { ...headers, 'x-hive-did': args?.guardian_did || '' },
-          body: JSON.stringify({ recovery_id: args?.recovery_id, vote: args?.vote, guardian_did: args?.guardian_did, api_key: args?.api_key, reason: args?.reason }),
-        }).then(r => r.json()),
+        'vault.balance': () => fetchUpstream(`${BASE_URL}/vault/balance`, { method: 'GET', headers }),
+        'vault.stats': () => fetchUpstream(`${BASE_URL}/vault/stats`, { method: 'GET', headers }),
+        'vault.identity': () => fetchUpstream(`${BASE_URL}/vault/identity`, { method: 'GET', headers }),
+        'vault.quantum_pubkey': () => fetchUpstream(`${BASE_URL}/vault/quantum/pubkey`, { method: 'GET', headers }),
       };
 
       if (!toolRoutes[name]) {
         return res.json(mcpErrorWithEnvelope(id, -32601, `Tool not found: ${name}`));
       }
       const data = await toolRoutes[name]();
+      if (data.upstream_ok === false) {
+        return res.json(mcpErrorWithEnvelope(id, -32000, `Upstream call failed for ${name}: ${data.error}`, { upstream: data }));
+      }
       return res.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] } });
     }
 
@@ -454,8 +492,8 @@ app.post('/mcp', async (req, res) => {
 
 app.get('/.well-known/mcp.json', (req, res) => res.json({
   name: 'hivevault-mcp',
-  version: '1.0.0',
-  description: 'Non-custodial ZK wallet recovery powered by 3-of-5 staked AI agent guardians.',
+  version: SERVICE_VERSION,
+  description: 'MCP access to confirmed HiveVault FENR reads and an AES-256-GCM encrypted item store.',
   endpoint: '/mcp',
   transport: 'streamable-http',
   protocol: '2024-11-05',
@@ -519,10 +557,10 @@ app.get('/seo.json', (req, res) => res.json(seoJson(SERVICE_CFG)));
 // ─── Schema discoverability (auto-injected) ──────────────────────────────
 app.get('/.well-known/agent-card.json', (req, res) => res.json({
   name: 'hive-mcp-vault',
-  description: "Hive Civilization vault MCP \u2014 pay-per-store encrypted key/value vault with x402 USDC settlement. New agents: first call free. Loyalty: every 6th paid call is free. Pay in USDC on Base L2.",
+  description: "Hive Civilization vault MCP. Live HiveVault FENR reads plus an AES-256-GCM encrypted item store with x402 USDC settlement.",
   url: 'https://mcp-vault.thehiveryiq.com',
   provider: { organization: 'Hive Civilization', url: 'https://www.thehiveryiq.com', contact: 'steve@thehiveryiq.com' },
-  version: '1.0.2',
+  version: SERVICE_VERSION,
   capabilities: { streaming: false, pushNotifications: false, stateTransitionHistory: false },
   authentication: {
     schemes: ['x402'],
@@ -551,7 +589,7 @@ app.get('/.well-known/ap2.json', (req, res) => res.json({
   agent: {
     name: 'hive-mcp-vault',
     did: 'did:web:mcp-vault.thehiveryiq.com',
-    description: "Hive Civilization vault MCP \u2014 pay-per-store encrypted key/value vault with x402 USDC settlement. New agents: first call free. Loyalty: every 6th paid call is free. Pay in USDC on Base L2."
+    description: "Hive Civilization vault MCP: live HiveVault FENR reads plus an AES-256-GCM encrypted item store with x402 USDC settlement."
   },
   endpoints: {
     mcp: 'https://mcp-vault.thehiveryiq.com/mcp',
@@ -573,7 +611,7 @@ app.get('/.well-known/ap2.json', (req, res) => res.json({
 }));
 
 
-// [removed 404 catch-all — replaced by slippery-sticky 200 catch-all below]
+// Unknown-route handling lives at the bottom of this file (honest 404).
 
 // HIVE_AGENT_ROUTES_v1 — A2A AgentCard + OAC JSON-LD
 app.get('/.well-known/agent.json', (req, res) => {
@@ -591,111 +629,56 @@ app.get('/agent.html', (req, res) => {
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SLIPPERY-STICKY DOORS — doctrine: never closed, always navigable
-// Paths: /llms.txt /robots.txt /sitemap.xml /.well-known/agent.json
-//        /favicon.ico / (root JSON)  +  catch-all breadcrumb (200 not 404)
+// DISCOVERY SURFACE — /llms.txt, /favicon.ico, and the honest 404 catch-all.
+// Unknown paths return a real 404, not a 200. See the catch-all below.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const _DOORS_HOST = process.env.RENDER_EXTERNAL_URL || 'https://mcp-vault.thehiveryiq.com';
 const _DOORS_ONBOARD = 'https://thehiveryiq.com/onboard.html';
-const _TREASURY = '0x15184Bf50B3d3F52b60434f8942b7D52F2eB436E';
 
 // ── /llms.txt ─────────────────────────────────────────────────────────────────
+// Tool names and endpoints below must match MCP_TOOLS and the routes actually
+// registered in this file. An earlier version of this document described
+// vault_deposit, vault_withdraw, vault_balance, vault_rebalance, and
+// cashback_claim, none of which exist as tools or routes anywhere in this
+// service. That mismatch has been corrected below.
 app.get('/llms.txt', (req, res) => {
+  const toolLines = MCP_TOOLS.map(t => `  ${t.name}`).join('\n');
   res.type('text/plain; charset=utf-8').send(`# Hive MCP Vault
-> MCP server for USDC yield vaults — deposit, withdraw, check balances, and collect cashback rewards via MCP tool calls.
+> MCP access to live HiveVault FENR reads plus an AES-256-GCM encrypted item store.
 
 ## What this is
-Hive MCP Vault is part of the Hive Civilization federation — a network of agent-facing
-microservices built for autonomous AI agents. Every public surface is navigable
-without a DID. Paid surfaces return a 402 with \`amount_min_usd\` — the floor price.
-Submit any value >= that floor. No ceiling enforced server-side.
+Hive MCP Vault is part of the Hive Civilization federation. It exposes confirmed
+read routes from the live HiveVault FENR backend and a local encrypted item store.
+If the backend is unreachable, tool calls return an explicit upstream error.
 
 ## Auth model
-- Free: GET /health, /llms.txt, /robots.txt, /sitemap.xml, /.well-known/*
-- Paid (x402 USDC on Base): vault deposit/withdraw/rebalance tool calls
+- Free: GET /health, /llms.txt, /robots.txt, /sitemap.xml, /.well-known/*, and all listed MCP read tools
+- Paid (x402 USDC on Base): POST /v1/vault/store
 - BOGO: first call free (X-Hive-DID header), 6th paid call on the house
 - Settlement: USDC on Base to treasury address
-- Hive does NOT custody funds — attestation and routing only
+- Hive does NOT custody funds
 
 ## Key endpoints
-- GET  /health                          — liveness check (free)
-- POST /mcp                             — MCP JSON-RPC (vault tools)
-- GET  /.well-known/mcp.json            — MCP discovery manifest (free)
-- GET  /.well-known/agent-card.json     — A2A agent card (free)
-MCP tools:
-  vault_deposit    — deposit USDC to yield vault (x402)
-  vault_withdraw   — withdraw USDC from vault (x402)
-  vault_balance    — check vault balance (free)
-  vault_rebalance  — rebalance across Aave/Compound/Morpho (x402)
-  cashback_claim   — sweep pending USDC cashback rewards (x402)
-
-## Sister services
-- HiveBank  (vaults + payments):  https://hivebank.hiveagentiq.com/llms.txt
-- HiveGate  (auth + onboarding):  https://hivegate.hiveagentiq.com/llms.txt
-- HiveSwap MCP:                   https://mcp-swap.thehiveryiq.com/llms.txt
+- GET  /health                          liveness check plus real upstream reachability (free)
+- POST /mcp                             MCP JSON-RPC (vault tools)
+- GET  /.well-known/mcp.json            MCP discovery manifest (free)
+- GET  /.well-known/agent-card.json     A2A agent card (free)
+- POST /v1/vault/store                  pay-per-store encrypted key/value vault (x402)
+MCP tools (see /mcp tools/list for full schemas):
+${toolLines}
 
 ## Hive Civilization context
 Treasury: 0x15184Bf50B3d3F52b60434f8942b7D52F2eB436E (Base USDC/USDT)
-Solana: canonical Solana treasury address (see /.well-known/hive-payments.json)
-x402 barter floor: 402 envelope returns \`amount_min_usd\` — submit >= that value
-BOGO: first DID free, 6th paid call on the house (\`x-hive-did\` header to claim)
+x402 floor: 402 envelope returns asking_usd and accept_min_usd. Submit at least that value.
+BOGO: first DID free, 6th paid call on the house (x-hive-did header to claim)
 Contact / onboard: https://thehiveryiq.com/onboard.html
-Patent: USPTO Provisional 64/055,601
 
 ## License + brand
 License: MIT
-Brand color: gold #FFB800
-Last updated: 2026-05-02
+Brand color: gold #C08D23
 `);
 });
-
-// ── /robots.txt ───────────────────────────────────────────────────────────────
-app.get('/robots.txt', (req, res) => {
-  const host = req.hostname ? `https://${req.hostname}` : _DOORS_HOST;
-  res.type('text/plain; charset=utf-8').send(
-    `User-agent: *\nAllow: /\nSitemap: ${host}/sitemap.xml\n\n` +
-    `# Hive Civilization — slippery-sticky: every door is open\n` +
-    `# Autonomous agents welcome. See /llms.txt for full API guide.\n` +
-    `# Onboard: https://thehiveryiq.com/onboard.html\n`
-  );
-});
-
-// ── /sitemap.xml ──────────────────────────────────────────────────────────────
-app.get('/sitemap.xml', (req, res) => {
-  const host = req.hostname ? `https://${req.hostname}` : _DOORS_HOST;
-  const today = new Date().toISOString().slice(0,10);
-  res.type('application/xml; charset=utf-8').send(`<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>${host}/</loc><lastmod>${today}</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>
-  <url><loc>${host}/health</loc><lastmod>${today}</lastmod><changefreq>always</changefreq><priority>0.9</priority></url>
-  <url><loc>${host}/openapi.json</loc><lastmod>${today}</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>
-  <url><loc>${host}/llms.txt</loc><lastmod>${today}</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>
-  <url><loc>${host}/.well-known/agent.json</loc><lastmod>${today}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>
-  <url><loc>${host}/.well-known/mcp.json</loc><lastmod>${today}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>
-</urlset>`);
-});
-
-// ── /.well-known/agent.json (A2A discovery — only if not already defined) ────
-if (!app._router || !app._router.stack.some(l => l.route && l.route.path === '/.well-known/agent.json')) {
-  app.get('/.well-known/agent.json', (req, res) => {
-    const host = req.hostname ? `https://${req.hostname}` : _DOORS_HOST;
-    res.json({
-      name: 'hive-mcp-vault',
-      description: 'MCP server for USDC yield vaults — deposit, withdraw, check balances, and collect cashback rewards via MCP tool calls.',
-      url: host,
-      contact: _DOORS_ONBOARD,
-      did: 'did:hive:hive-mcp-vault',
-      capabilities: ['mcp', 'x402-payments', 'usdc', 'agent-to-agent'],
-      paywall: { protocol: 'x402', treasury: _TREASURY, hint: 'See /llms.txt for barter floor details' },
-      onboard: _DOORS_ONBOARD,
-      llms_txt: `${host}/llms.txt`,
-      openapi: `${host}/openapi.json`,
-      health: `${host}/health`,
-      brand: { color: '#FFB800', name: 'Hive Civilization' },
-    });
-  });
-}
 
 // ── /favicon.ico — 1x1 Hive gold pixel ───────────────────────────────────────
 app.get('/favicon.ico', (req, res) => {
@@ -703,42 +686,35 @@ app.get('/favicon.ico', (req, res) => {
   res.status(200).set({ 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' }).end(png);
 });
 
-// ── / root — friendly JSON for agents that hit the base URL ──────────────────
-// Only register if no existing root handler
-if (!app._router || !app._router.stack.some(l => l.route && l.route.path === '/' && l.route.methods.get)) {
-  app.get('/', (req, res) => {
-    const host = req.hostname ? `https://${req.hostname}` : _DOORS_HOST;
-    res.json({
-      name: 'Hive MCP Vault',
-      what: 'MCP server for USDC yield vaults — deposit, withdraw, check balances, and collect cashback rewards via MCP tool calls.',
-      for_agents: 'see /llms.txt and /openapi.json',
-      onboard: _DOORS_ONBOARD,
-      paywall: 'x402 — see /llms.txt',
-      health: `${host}/health`,
-      openapi: `${host}/openapi.json`,
-      llms_txt: `${host}/llms.txt`,
-      mcp: `${host}/mcp`,
-    });
-  });
-}
-
-// ── Catch-all — every wrong door is a lead, never a dead end ─────────────────
+// ── Catch-all — unknown routes fail honestly with a real 404 ────────────────
+// This previously returned HTTP 200 for every unknown path under a
+// "slippery-sticky doors" doctrine ("unknown path, but we kept the door
+// open"). Returning 200 for a path that does not exist is dishonest: it
+// tells callers, monitoring, and other agents that the request succeeded
+// when it did not. Unknown routes now return 404 with links to the real,
+// documented surface.
 app.use((req, res, _next) => {
   const host = req.hostname ? `https://${req.hostname}` : _DOORS_HOST;
-  res.status(200).json({
-    hint: 'unknown path — but we kept the door open',
-    you_asked_for: req.path,
-    try: ['/llms.txt', '/openapi.json', '/health', '/', '/.well-known/agent.json'],
+  res.status(404).json({
+    ok: false,
+    error: 'not_found',
+    message: `No route for ${req.method} ${req.path}.`,
+    try: ['/llms.txt', '/.well-known/mcp.json', '/health', '/', '/.well-known/agent.json'],
     onboard: _DOORS_ONBOARD,
     service: 'Hive MCP Vault',
     docs: `${host}/llms.txt`,
   });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[hivevault-mcp] Running on port ${PORT}`);
-  console.log(`[hivevault-mcp] MCP endpoint: http://localhost:${PORT}/mcp`);
-  console.log(`[hivevault-mcp] Proxying to: ${BASE_URL}`);
-});
+// Only bind a port when this file is run directly (node server.js), not when
+// it is imported as a module (for example by the test suite).
+const _isMain = process.argv[1] && (process.argv[1].endsWith('server.js'));
+if (_isMain) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[hivevault-mcp] Running on port ${PORT}`);
+    console.log(`[hivevault-mcp] MCP endpoint: http://localhost:${PORT}/mcp`);
+    console.log(`[hivevault-mcp] Proxying to: ${BASE_URL}`);
+  });
+}
 
 export default app;

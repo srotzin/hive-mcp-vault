@@ -1,14 +1,14 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.srotzin/hive-mcp-vault",
-  "description": "HiveVault MCP Server \u2014 world's first A2A ZK wallet with autonomous AI agent recovery. No seed phrase",
+  "description": "MCP access to confirmed HiveVault FENR reads and an AES-256-GCM encrypted item store.",
   "title": "Hive Vault",
   "websiteUrl": "https://thehiveryiq.com",
   "repository": {
     "url": "https://github.com/srotzin/hive-mcp-vault",
     "source": "github"
   },
-  "version": "1.0.0",
+  "version": "1.1.0",
   "remotes": [
     {
       "type": "streamable-http",

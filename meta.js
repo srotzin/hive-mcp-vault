@@ -72,7 +72,7 @@ export function seoJson(cfg) {
 export function renderLanding(cfg) {
   const ld = seoJson(cfg);
   const toolList = (cfg.tools || []).map(t =>
-    `<li><code>${t.name}</code> — ${t.description}</li>`
+    `<li><code>${t.name}</code>: ${t.description}</li>`
   ).join('\n');
   const kw = cfg.keywords.join(', ');
   const externalUrl = cfg.externalUrl;
@@ -148,12 +148,12 @@ export function renderLanding(cfg) {
 
     <h2>Discovery</h2>
     <ul class="tools">
-      <li><code>GET /.well-known/mcp.json</code> — MCP discovery descriptor</li>
-      <li><code>GET /health</code> — health + telemetry</li>
-      <li><code>POST /mcp</code> — JSON-RPC 2.0 over Streamable-HTTP, MCP 2024-11-05</li>
-      <li><code>GET /sitemap.xml</code> — crawler sitemap</li>
-      <li><code>GET /robots.txt</code> — allow-all crawl policy</li>
-      <li><code>GET /.well-known/security.txt</code> — security contact</li>
+      <li><code>GET /.well-known/mcp.json</code>: MCP discovery descriptor</li>
+      <li><code>GET /health</code>: health and telemetry</li>
+      <li><code>POST /mcp</code>: JSON-RPC 2.0 over Streamable-HTTP, MCP 2024-11-05</li>
+      <li><code>GET /sitemap.xml</code>: crawler sitemap</li>
+      <li><code>GET /robots.txt</code>: allow-all crawl policy</li>
+      <li><code>GET /.well-known/security.txt</code>: security contact</li>
     </ul>
   </main>
   <footer>

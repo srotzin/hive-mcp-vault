@@ -1,10 +1,11 @@
 {
   "name": "hive-mcp-vault",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "type": "module",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test test/"
   },
   "dependencies": {
     "better-sqlite3": "^11.3.0",
@@ -23,11 +24,9 @@
     "llm",
     "hive",
     "hive-civilization",
-    "wallet-recovery",
-    "zk",
-    "zero-knowledge",
-    "tss-mpc",
-    "guardian-quorum",
+    "encrypted-store",
+    "aes-256-gcm",
+    "read-api",
     "usdc",
     "base",
     "base-l2",
@@ -37,10 +36,9 @@
     "agent-card",
     "oac",
     "open-agent-card",
-    "attribution",
-    "earn"
+    "encrypted-storage"
   ],
-  "description": "MCP server for HiveVault \u2014 non-custodial ZK wallet recovery. TSS-MPC key splitting, ZK biometric commitments, 3-of-5 staked guardian agents, and live USDC balances on Base L2. Real chains, no simulated recoveries.",
+  "description": "MCP access to live HiveVault FENR reads and an AES-256-GCM encrypted item store with x402 USDC settlement.",
   "homepage": "https://mcp-vault.thehiveryiq.com",
   "repository": {
     "type": "git",

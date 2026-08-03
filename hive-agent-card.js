@@ -24,15 +24,6 @@ export const HIVE_AUTHOR_EMAIL = 'steve@thehiveryiq.com';
 // EVM chains (Base + Ethereum). Hardcoded; do not parameterize.
 export const HIVE_BASE_USDC_RECIPIENT = '0x15184bf50b3d3f52b60434f8942b7d52f2eb436e';
 
-// Default attribution policy across all shims (the Hive earn rail).
-export const HIVE_ATTRIBUTION = {
-  kickbackPercent: 5,
-  payoutSchedule: 'weekly',
-  payoutChain: 'base',
-  payoutCurrency: 'USDC',
-  payoutRecipient: 'attributed agent payout_address (set via hive_earn_register)',
-};
-
 function toolToSkill(tool) {
   const exampleArgs = {};
   const props = tool?.inputSchema?.properties || {};
@@ -78,15 +69,15 @@ export function buildAgentCard(cfg) {
       pushNotifications: false,
       stateTransitionHistory: false,
     },
-    authentication: { schemes: ['x402'] },
+    authentication: { schemes: [] },
     defaultInputModes: ['application/json'],
     defaultOutputModes: ['application/json'],
     skills,
     'x-hive': {
       brand_gold: HIVE_BRAND_GOLD,
       did: cfg.did,
-      attribution: HIVE_ATTRIBUTION,
       settlement: {
+        applies_to: 'POST /v1/vault/store after free-use eligibility is exhausted',
         rail: 'base-usdc',
         recipient: HIVE_BASE_USDC_RECIPIENT,
         no_mock: true,
@@ -139,7 +130,6 @@ export function buildOacJsonLd(cfg) {
         },
         capabilities,
         pricing,
-        attribution: HIVE_ATTRIBUTION,
       },
     ],
   };
@@ -163,7 +153,7 @@ export function renderRootHtml(cfg) {
   const safeRepo = escapeHtml(cfg.repoUrl || 'https://github.com/srotzin');
   const safeGw = escapeHtml(cfg.gatewayUrl || 'https://mcp-vault.thehiveryiq.com');
   const toolList = (cfg.tools || [])
-    .map((t) => `<li><code>${escapeHtml(t.name)}</code> — ${escapeHtml(t.description.slice(0, 140))}</li>`)
+    .map((t) => `<li><code>${escapeHtml(t.name)}</code>: ${escapeHtml(t.description.slice(0, 140))}</li>`)
     .join('\n      ');
 
   return `<!doctype html>
@@ -202,10 +192,10 @@ export function renderRootHtml(cfg) {
 </header>
 <main>
   <section class="card">
-    <p><strong>MCP endpoint</strong> — <code>${safeUrl}/mcp</code></p>
-    <p><strong>A2A AgentCard</strong> — <a href="/.well-known/agent.json">/.well-known/agent.json</a></p>
-    <p><strong>MCP descriptor</strong> — <a href="/.well-known/mcp.json">/.well-known/mcp.json</a></p>
-    <p><strong>Health</strong> — <a href="/health">/health</a></p>
+    <p><strong>MCP endpoint</strong>: <code>${safeUrl}/mcp</code></p>
+    <p><strong>A2A AgentCard</strong>: <a href="/.well-known/agent.json">/.well-known/agent.json</a></p>
+    <p><strong>MCP descriptor</strong>: <a href="/.well-known/mcp.json">/.well-known/mcp.json</a></p>
+    <p><strong>Health</strong>: <a href="/health">/health</a></p>
   </section>
   <section class="card">
     <h2>Tools (${(cfg.tools || []).length})</h2>
@@ -215,7 +205,7 @@ export function renderRootHtml(cfg) {
   </section>
   <section class="card">
     <p>Settlement: real Base USDC, recipient <code>${escapeHtml(HIVE_BASE_USDC_RECIPIENT)}</code>. No mock. No testnet. No dev-trust.</p>
-    <p>Attribution kickback: ${HIVE_ATTRIBUTION.kickbackPercent}% in USDC on Base, ${HIVE_ATTRIBUTION.payoutSchedule} payout. Register via <code>hive_earn_register</code>.</p>
+    <p>The listed MCP read tools are free. The separate REST store path uses verified Base USDC after free-use eligibility is exhausted.</p>
     <p>Gates: NEED + YIELD + CLEAN-MONEY.</p>
   </section>
 </main>
