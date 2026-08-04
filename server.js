@@ -445,10 +445,10 @@ app.post('/mcp', async (req, res) => {
       const headers = { 'Content-Type': 'application/json', 'x-hive-key': args?.api_key || '', 'x-vault-key': _EFFECTIVE_INTERNAL_KEY };
 
       // fetchUpstream never fabricates success. It surfaces the real upstream
-      // HTTP status and body, and turns network failures / non-JSON bodies
-      // (e.g. a 404 HTML page from a dead backend) into an explicit
-      // upstream_error result instead of silently returning them as if they
-      // were a valid tool response.
+      // HTTP status and body, and turns network failures, non-2xx status,
+      // non-JSON bodies (e.g. a 404 HTML page from a dead backend), and
+      // empty bodies into an explicit upstream_error result instead of
+      // silently returning them as if they were a valid tool response.
       async function fetchUpstream(url, init) {
         let resp;
         try {
@@ -456,11 +456,20 @@ app.post('/mcp', async (req, res) => {
         } catch (err) {
           return { upstream_ok: false, upstream_status: 0, error: 'upstream_unreachable', detail: err?.message || String(err), url };
         }
-        let body;
         const text = await resp.text();
-        try { body = text ? JSON.parse(text) : {}; } catch { body = { raw: text.slice(0, 500) }; }
         if (!resp.ok) {
-          return { upstream_ok: false, upstream_status: resp.status, error: 'upstream_error', detail: body, url };
+          let errorBody;
+          try { errorBody = text ? JSON.parse(text) : {}; } catch { errorBody = { raw: text.slice(0, 500) }; }
+          return { upstream_ok: false, upstream_status: resp.status, error: 'upstream_error', detail: errorBody, url };
+        }
+        if (!text) {
+          return { upstream_ok: false, upstream_status: resp.status, error: 'empty_body', detail: 'upstream returned a 2xx with an empty body', url };
+        }
+        let body;
+        try {
+          body = JSON.parse(text);
+        } catch {
+          return { upstream_ok: false, upstream_status: resp.status, error: 'non_json_body', detail: text.slice(0, 500), url };
         }
         return { upstream_ok: true, upstream_status: resp.status, ...body };
       }
