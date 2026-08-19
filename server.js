@@ -210,6 +210,29 @@ app.use((req, res, next) => {
   next();
 });
 
+// ─── Liveness ───────────────────────────────────────────────
+// Liveness only. Answers one question: is this process alive and able to serve
+// a request. It deliberately says nothing about the upstream backend, and it
+// makes no claim that tool calls will succeed. Use /health for that.
+//
+// This exists because a platform liveness probe pointed at /health will kill
+// this process whenever the upstream is slow, and restarting this process
+// cannot repair an upstream. The platform health check path is set to /livez.
+// /health keeps returning 503 when the upstream is unreachable, so no caller
+// is ever told ok while the tools would fail.
+app.get('/livez', (req, res) => {
+  res.status(200).json({
+    status: 'alive',
+    scope: 'process_only',
+    service: 'hivevault-mcp',
+    version: SERVICE_VERSION,
+    note: 'Process liveness only. This says nothing about upstream reachability. Call /health for upstream status.',
+    upstream_checked: false,
+    timestamp: new Date().toISOString(),
+    uptime_seconds: Math.floor(process.uptime()),
+  });
+});
+
 // ─── Health ─────────────────────────────────────────────────────────────────
 // Reports this process's own liveness plus the real, just-checked reachability
 // of the upstream vault backend. Tool calls proxy to that backend, so a

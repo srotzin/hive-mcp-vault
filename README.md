@@ -30,7 +30,8 @@ Unknown paths return HTTP 404. Upstream failures return explicit MCP errors. The
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/health` | Local liveness and current upstream reachability |
+| `GET` | `/health` | Readiness. This process plus current upstream reachability. Returns 503 and `degraded` when the upstream is unreachable |
+| `GET` | `/livez` | Liveness only. This process, no upstream claim. This is the path platform health checks should use |
 | `POST` | `/mcp` | MCP JSON-RPC 2.0, protocol `2024-11-05` |
 | `GET` | `/.well-known/mcp.json` | MCP discovery manifest |
 | `GET` | `/.well-known/agent-card.json` | A2A agent card |
