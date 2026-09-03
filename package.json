@@ -11,7 +11,7 @@
     "better-sqlite3": "^11.3.0",
     "cors": "^2.8.5",
     "ethers": "^6.13.2",
-    "express": "^4.18.2",
+    "express": "^5.2.1",
     "@noble/ed25519": "^2.1.0"
   },
   "keywords": [
